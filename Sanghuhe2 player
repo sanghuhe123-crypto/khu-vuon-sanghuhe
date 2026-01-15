@@ -1,0 +1,196 @@
+import pygame
+import math
+import random
+
+# Khởi tạo
+pygame.init()
+# Cấu hình màn hình ngang
+WIDTH, HEIGHT = 1200, 600
+screen = pygame.display.set_mode((WIDTH, HEIGHT))
+clock = pygame.time.Clock()
+
+# Màu sắc
+BLACK = (0, 0, 0)
+WHITE = (255, 255, 255)
+RED = (231, 76, 60)
+BLUE = (52, 152, 219)
+PINK = (233, 30, 99)
+YELLOW = (241, 196, 15)
+JOY_BASE = (50, 50, 50, 100) # Màu trong suốt cho joystick
+
+# Thông số Boss
+BOSS_HP_SCALE = {5: 150, 10: 400, 15: 850, 20: 1000}
+WAVE = 1
+MAP_SIZE = 2500
+
+class Player:
+    def __init__(self, x, y, color, id):
+        self.id = id
+        self.x, self.y = x, y
+        self.color = color
+        self.hp = 120
+        self.max_hp = 120
+        self.speed = 5
+        self.dame = 20
+        self.bullets = []
+        self.vel_x = 0
+        self.vel_y = 0
+
+    def update(self):
+        self.x = max(0, min(MAP_SIZE, self.x + self.vel_x))
+        self.y = max(0, min(MAP_SIZE, self.y + self.vel_y))
+
+class Enemy:
+    def __init__(self, x, y, hp, is_boss=False):
+        self.x, self.y = x, y
+        self.hp = hp
+        self.max_hp = hp
+        self.is_boss = is_boss
+        self.r = 70 if is_boss else 20
+        self.speed = 1.3 if is_boss else 1.8
+
+# Khởi tạo người chơi
+p1 = Player(1200, 1250, BLUE, 1)
+p2 = Player(1300, 1250, PINK, 2)
+players = [p1, p2]
+enemies = []
+
+# Cấu hình Joystick
+JOY_R = 60
+JOY_KNOB_R = 25
+joy1_pos = (100, HEIGHT - 100) # Vị trí Joystick P1
+joy2_pos = (WIDTH - 100, HEIGHT - 100) # Vị trí Joystick P2
+
+def spawn_wave():
+    global WAVE
+    is_boss = WAVE % 5 == 0
+    hp = BOSS_HP_SCALE.get(WAVE, 30 + WAVE * 10) if is_boss else (30 + WAVE * 8)
+    if is_boss: enemies.append(Enemy(1250, 1250, hp, True))
+    count = 3 if is_boss else 8 + WAVE * 3
+    for _ in range(count):
+        ang = random.uniform(0, math.pi * 2)
+        dist = random.randint(800, 1200)
+        enemies.append(Enemy(1250 + math.cos(ang)*dist, 1250 + math.sin(ang)*dist, 30 + WAVE * 8))
+
+spawn_wave()
+
+def handle_joystick(touches):
+    # touches là dictionary {finger_id: (x, y)}
+    p1.vel_x = p1.vel_y = 0
+    p2.vel_x = p2.vel_y = 0
+    
+    for tid, pos in touches.items():
+        # Kiểm tra Joystick 1
+        d1 = math.hypot(pos[0] - joy1_pos[0], pos[1] - joy1_pos[1])
+        if d1 < JOY_R + 50: # Vùng chạm J1
+            angle = math.atan2(pos[1] - joy1_pos[1], pos[0] - joy1_pos[0])
+            dist = min(d1, JOY_R)
+            p1.vel_x = math.cos(angle) * (dist/JOY_R) * p1.speed
+            p1.vel_y = math.sin(angle) * (dist/JOY_R) * p1.speed
+            
+        # Kiểm tra Joystick 2
+        d2 = math.hypot(pos[0] - joy2_pos[0], pos[1] - joy2_pos[1])
+        if d2 < JOY_R + 50: # Vùng chạm J2
+            angle = math.atan2(pos[1] - joy2_pos[1], pos[0] - joy2_pos[0])
+            dist = min(d2, JOY_R)
+            p2.vel_x = math.cos(angle) * (dist/JOY_R) * p2.speed
+            p2.vel_y = math.sin(angle) * (dist/JOY_R) * p2.speed
+
+def draw_game():
+    screen.fill(BLACK)
+    # Vẽ 2 viewports
+    for i, p in enumerate(players):
+        view_rect = pygame.Rect(i * (WIDTH//2), 0, WIDTH//2, HEIGHT)
+        sub_surface = pygame.Surface((WIDTH//2, HEIGHT))
+        
+        # Camera
+        cam_x = p.x - WIDTH//4
+        cam_y = p.y - HEIGHT//2
+        
+        # Vẽ lưới
+        for x in range(0, MAP_SIZE, 200):
+            pygame.draw.line(sub_surface, (20, 20, 20), (x - cam_x, 0), (x - cam_x, HEIGHT))
+        for y in range(0, MAP_SIZE, 200):
+            pygame.draw.line(sub_surface, (20, 20, 20), (0, y - cam_y), (WIDTH//2, y - cam_y))
+            
+        # Vẽ quái
+        for e in enemies:
+            ex, ey = e.x - cam_x, e.y - cam_y
+            pygame.draw.circle(sub_surface, PURPLE if e.is_boss else RED, (int(ex), int(ey)), e.r)
+            # Thanh máu quái
+            pygame.draw.rect(sub_surface, YELLOW, (ex - e.r, ey - e.r - 10, (e.r*2) * (e.hp/e.max_hp), 4))
+            if e.is_boss:
+                font = pygame.font.SysFont(None, 20)
+                txt = font.render(f"{int(e.hp)} HP", True, WHITE)
+                sub_surface.blit(txt, (ex - 20, ey - e.r - 25))
+
+        # Vẽ người chơi
+        for other_p in players:
+            ox, oy = other_p.x - cam_x, other_p.y - cam_y
+            pygame.draw.circle(sub_surface, other_p.color, (int(ox), int(oy)), 25)
+            pygame.draw.rect(sub_surface, (46, 204, 113), (ox - 25, oy - 35, 50 * (other_p.hp/other_p.max_hp), 5))
+
+        screen.blit(sub_surface, (i * (WIDTH//2), 0))
+
+    # Vẽ Joystick lên trên cùng (Lớp UI)
+    pygame.draw.circle(screen, (100, 100, 100), joy1_pos, JOY_R, 2)
+    pygame.draw.circle(screen, (100, 100, 100), joy2_pos, JOY_R, 2)
+    # Vẽ núm điều khiển dựa trên vận tốc
+    k1 = (joy1_pos[0] + p1.vel_x * 10, joy1_pos[1] + p1.vel_y * 10)
+    k2 = (joy2_pos[0] + p2.vel_x * 10, joy2_pos[1] + p2.vel_y * 10)
+    pygame.draw.circle(screen, WHITE, k1, JOY_KNOB_R)
+    pygame.draw.circle(screen, WHITE, k2, JOY_KNOB_R)
+
+    # Hiển thị Wave
+    font = pygame.font.SysFont(None, 40)
+    wave_txt = font.render(f"WAVE {WAVE}", True, RED)
+    screen.blit(wave_txt, (WIDTH//2 - 50, 20))
+
+# Vòng lặp chính
+running = True
+active_touches = {}
+
+while running:
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            running = False
+        # Xử lý đa điểm trên Android
+        if event.type == pygame.FINGERDOWN:
+            active_touches[event.finger_id] = (event.x * WIDTH, event.y * HEIGHT)
+        if event.type == pygame.FINGERMOTION:
+            active_touches[event.finger_id] = (event.x * WIDTH, event.y * HEIGHT)
+        if event.type == pygame.FINGERUP:
+            if event.finger_id in active_touches:
+                del active_touches[event.finger_id]
+
+    handle_joystick(active_touches)
+    
+    # Cập nhật Logic
+    for p in players: p.update()
+    
+    for e in enemies[:]:
+        target = p1 if math.hypot(e.x-p1.x, e.y-p1.y) < math.hypot(e.x-p2.x, e.y-p2.y) else p2
+        angle = math.atan2(target.y - e.y, target.x - e.x)
+        e.x += math.cos(angle) * e.speed
+        e.y += math.sin(angle) * e.speed
+        
+        # Tự động tấn công (Dame nerf: 0.8)
+        for p in players:
+            if math.hypot(e.x - p.x, e.y - p.y) < 300:
+                e.hp -= 0.15 # Dame nerf Ma cà rồng/Pháp sư
+        
+        if math.hypot(e.x - target.x, e.y - target.y) < 30:
+            target.hp -= 0.6 if e.is_boss else 0.2
+            
+        if e.hp <= 0: enemies.remove(e)
+
+    if not enemies:
+        WAVE += 1
+        spawn_wave()
+
+    draw_game()
+    pygame.display.flip()
+    clock.tick(30)
+
+pygame.quit()
+
